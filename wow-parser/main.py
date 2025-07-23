@@ -76,15 +76,31 @@ Tarefa Principal
 def analisar_interacao(texto_interacao: str) -> dict:
     """Chama o modelo Gemini para analisar o texto e retorna um dicionário."""
     try:
-        # Usar o modelo correto disponível na região us-central1
+        logger.info(f"TESTE GEMINI - Iniciando análise para: {texto_interacao[:100]}...")
+        
+        # Testar inicialização do modelo
+        logger.info(f"TESTE GEMINI - Inicializando modelo gemini-2.5-flash-lite...")
         model = GenerativeModel("gemini-2.5-flash-lite", system_instruction=[PROMPT])
+        logger.info(f"TESTE GEMINI - Modelo inicializado com sucesso")
+        
+        # Testar chamada da API
+        logger.info(f"TESTE GEMINI - Enviando requisição para Vertex AI...")
         response = model.generate_content(
             [Part.from_text(f"Interação para Análise: {texto_interacao}")],
             generation_config={"response_mime_type": "application/json"}
         )
-        return json.loads(response.text)
+        logger.info(f"TESTE GEMINI - Resposta recebida: {response.text[:200]}...")
+        
+        # Testar parsing JSON
+        logger.info(f"TESTE GEMINI - Fazendo parse do JSON...")
+        resultado = json.loads(response.text)
+        logger.info(f"TESTE GEMINI - JSON parseado com sucesso: {resultado}")
+        
+        return resultado
+        
     except Exception as e:
-        logger.error(f"Erro ao analisar interação: {e}")
+        logger.error(f"TESTE GEMINI - ERRO DETALHADO: {e}")
+        logger.error(f"TESTE GEMINI - TRACEBACK: {traceback.format_exc()}")
         return {"raciocinio": "Erro no processamento da IA", "classificacao_final": "Erro"}
 
 def update_progress(session_id: str, current: int, total: int, status: str = "processing", extra_data: dict = None):
@@ -146,14 +162,24 @@ def make_blob_public(bucket_name: str, blob_path: str) -> str:
 def processar_csv_streaming(csv_content: str, session_id: str, max_preview_rows: int = 50) -> tuple:
     """Processa um CSV aplicando o prompt com updates de progresso em tempo real."""
     try:
+        logger.info(f"PROCESSAMENTO - Iniciando para sessão: {session_id}")
+        logger.info(f"PROCESSAMENTO - Tamanho do CSV: {len(csv_content)} chars")
+        
         # Ler o CSV
         csv_reader = csv.DictReader(io.StringIO(csv_content))
-        fieldnames = list(csv_reader.fieldnames) + ['raciocinio', 'classificacao_final']
+        fieldnames = list(csv_reader.fieldnames)
+        logger.info(f"PROCESSAMENTO - Colunas encontradas: {fieldnames}")
+        
+        # Verificar se tem a coluna obrigatória
+        if 'ordered_messages' not in fieldnames:
+            raise Exception(f"Coluna 'ordered_messages' não encontrada. Colunas disponíveis: {fieldnames}")
+        
+        fieldnames = fieldnames + ['raciocinio', 'classificacao_final']
         
         # Primeiro, contar total de linhas para progresso
         csv_reader_count = csv.DictReader(io.StringIO(csv_content))
         total_rows = sum(1 for row in csv_reader_count)
-        logger.info(f"Total de linhas para processar: {total_rows}")
+        logger.info(f"PROCESSAMENTO - Total de linhas para processar: {total_rows}")
         
         # Inicializar progresso
         update_progress(session_id, 0, total_rows, "starting")

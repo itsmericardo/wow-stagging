@@ -1,0 +1,3 @@
+id,ordered_messages,canal
+1,"Cliente: Oi preciso de ajuda com meu cartão. Agente: Olá! Claro posso te ajudar sim. Qual é o problema? Cliente: Meu cartão está bloqueado. Agente: Vou desbloquear para você agora mesmo. Cliente: Obrigado pela rapidez!",chat
+2,"Cliente: Bom dia quero cancelar minha conta. Agente: Bom dia! Entendo sua solicitação. Posso saber o motivo? Cliente: Mudei de banco. Agente: Tudo bem realizarei o cancelamento. Cliente: Obrigado.",telefone 

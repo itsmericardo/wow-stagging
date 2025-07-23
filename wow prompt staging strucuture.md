@@ -2,7 +2,7 @@
 
 ### **Documentação Técnica: WOW Analyzer**
 
-Versão: 2.0
+Versão: 2.1
 
 Data: 23 de Julho de 2025
 
@@ -22,7 +22,7 @@ O sistema é composto por uma única Cloud Function (wow-parser) que serve tanto
 
 * **Cloud Functions (Gen 2):** Toda a lógica computacional, frontend e backend.
 * **Cloud Storage:** Armazenamento dos arquivos de entrada (uploads) e saída (resultados processados).
-* **Vertex AI (Gemini 1.5 Flash):** Análise de sentimento/classificação das interações.
+* **Vertex AI (Gemini 2.5 Flash Lite):** Análise de sentimento/classificação das interações.
 
 **Fluxo de Dados End-to-End:**
 
@@ -54,6 +54,7 @@ O código fonte está versionado neste repositório GitHub.
 * O download do arquivo processado é público (link direto do bucket), facilitando o compartilhamento.
 * O upload e processamento são feitos via interface autenticada (IAP pode ser ativado se desejado).
 * O deploy não utiliza `--allow-unauthenticated` para upload/processamento, mas o download é público para facilitar o uso.
+* As permissões da service account da função estão corretas: `roles/aiplatform.user` e `roles/storage.admin`.
 
 #### **6. Configuração e Deploy**
 
@@ -85,15 +86,13 @@ O código fonte está versionado neste repositório GitHub.
 * Download público do arquivo completo processado
 * Botão "Limpar" para resetar a interface
 
-#### **8. Manutenção e Próximos Passos**
+#### **8. Estado Atual e Pendências**
 
-* **Limite de 100MB por arquivo** para garantir performance e evitar timeouts.
-* **Logs detalhados** para debug e rastreabilidade.
-* **Possível evolução:**
-  - Paginação/scroll virtual para previews maiores
-  - Filtros e busca na interface
-  - Exportação de gráficos e dashboards
-  - Integração com autenticação IAP para uploads restritos
+* **Frontend:** 100% funcional, preview, estatísticas e download OK.
+* **Backend:** Deploy correto, variáveis e permissões ajustadas, processamento síncrono.
+* **Permissões:** Service account com `roles/aiplatform.user` e `roles/storage.admin`.
+* **PENDÊNCIA:** Erro no processamento Gemini (Vertex AI) impede classificação real das interações. O erro está sendo logado, mas a função retorna "Erro no processamento da IA" para todas as linhas. Arquivo processado não é salvo no bucket.
+* **Próximo passo:** Investigar logs detalhados do Vertex AI e quotas, ou abrir chamado no suporte GCP se necessário.
 
 ---
 
