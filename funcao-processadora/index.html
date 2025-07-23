@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <base target="_top">
+    <title>Análise de Atendimentos</title>
+    <link rel="icon" type="image/x-icon" href="https://nubank.com.br/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --nubank-purple: #820ad1;
+        --success-green: #00875f;
+        --error-red: #c73636;
+        --error-background: #fce8e6;
+        --text-dark: #111111;
+        --text-light: #5f6368;
+        --white: #ffffff;
+        --border-color: #e0e0e0;
+      }
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: var(--nubank-purple);
+        background-image: linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), url('https://www.datocms-assets.com/120597/1746626697-mao-segurando-cartao-nubank-ptbr-hero-product-desktop.jpg?crop=focalpoint&dpr=1&fit=crop&fm=jpg&q=60&w=2000');
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        color: var(--text-dark);
+      }
+      .container {
+        background-color: var(--white);
+        padding: 40px;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        width: 100%;
+        max-width: 550px;
+        text-align: center;
+      }
+      h1 {
+        font-size: 28px;
+        font-weight: 700;
+        margin-top: 0;
+        margin-bottom: 32px;
+      }
+      .upload-area {
+        border: 2px dashed var(--border-color);
+        border-radius: 8px;
+        padding: 30px;
+        text-align: center;
+        cursor: pointer;
+        transition: background-color 0.2s, border-color 0.2s;
+        margin-bottom: 16px;
+      }
+      .upload-area.dragover {
+        border-color: var(--nubank-purple);
+        background-color: rgba(130, 10, 209, 0.05);
+      }
+      .upload-area p {
+        margin: 0;
+        font-weight: 500;
+        color: var(--text-light);
+      }
+      .upload-area p span {
+        color: var(--nubank-purple);
+        font-weight: 700;
+      }
+      #file-input-hidden { display: none; }
+      #selected-file-display {
+        margin-top: 8px;
+        color: var(--text-dark);
+        font-size: 14px;
+        font-weight: 500;
+        min-height: 1.2em;
+        word-break: break-all;
+      }
+      .buttons {
+        display: flex;
+        justify-content: flex-end; /* Alinhado à direita para padrão Salvar/Cancelar */
+        gap: 12px;
+        padding-top: 20px;
+      }
+      button {
+        padding: 12px 28px;
+        border: none;
+        border-radius: 24px;
+        font-weight: 700;
+        font-size: 16px;
+        cursor: pointer;
+        transition: background-color 0.3s, transform 0.2s;
+      }
+      button:hover { transform: translateY(-2px); }
+      button:disabled { background-color: #d1c4e9; color: var(--white); cursor: not-allowed; transform: none; }
+      #btn-cancel { background-color: transparent; color: var(--nubank-purple); border: 1px solid transparent; }
+      #btn-analyze { background-color: var(--nubank-purple); color: var(--white); }
+      #status {
+        margin-top: 24px;
+        color: var(--text-light);
+        text-align: center;
+        min-height: 24px;
+        font-weight: 500;
+        font-size: 16px;
+      }
+      #status.success { color: var(--success-green); }
+      #status.error {
+        color: var(--error-red);
+        background-color: var(--error-background);
+        border: 1px solid var(--error-red);
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 24px;
+      }
+      .progress-container {
+        display: none; width: 100%; background-color: #e0e0e0;
+        border-radius: 8px; margin-top: 16px; overflow: hidden;
+      }
+      .progress-bar {
+        width: 0%; height: 24px; background-color: var(--nubank-purple);
+        border-radius: 8px; text-align: center; line-height: 24px;
+        color: white; font-weight: 500; transition: width 0.4s ease;
+      }
+      a { color: var(--nubank-purple); text-decoration: none; font-weight: 700; }
+      a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Análise de Atendimentos</h1>
+        <form id="uploadForm">
+            
+            <div class="upload-area" id="drop-area">
+                <input type="file" id="file-input-hidden" accept=".csv,.tsv,.txt" required>
+                <p>Arraste e solte o arquivo aqui ou <span>clique para selecionar</span></p>
+            </div>
+            <p id="selected-file-display"></p>
+
+            <div class="buttons">
+                <button type="button" id="btn-cancel">Limpar</button>
+                <button type="submit" id="btn-analyze">Analisar Arquivo</button>
+            </div>
+        </form>
+
+        <div id="status"></div>
+        <div class="progress-container" id="progress-container">
+            <div class="progress-bar" id="progress-bar">0%</div>
+        </div>
+    </div>
+
+    <script>
+        // === ELEMENTOS DO DOM ===
+        const form = document.getElementById('uploadForm');
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('file-input-hidden');
+        const fileDisplay = document.getElementById('selected-file-display');
+        const analyzeButton = document.getElementById('btn-analyze');
+        const cancelButton = document.getElementById('btn-cancel');
+        const statusDiv = document.getElementById('status');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        
+        let selectedFile = null;
+        let uploadXHR = null; // Para poder cancelar o upload
+
+        // === URL DA SUA CLOUD FUNCTION (SUBSTITUIR) ===
+        // Cole aqui a URL da sua 'funcao-geradora-url' após o deploy
+        const GENERATE_URL_ENDPOINT = 'URL_DA_SUA_FUNCAO_AQUI'; 
+
+        // === LÓGICA DE DRAG AND DROP ===
+        dropArea.addEventListener('click', () => fileInput.click());
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.classList.add('dragover');
+        });
+        dropArea.addEventListener('dragleave', () => dropArea.classList.remove('dragover'));
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelection(files[0]);
+            }
+        });
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                handleFileSelection(fileInput.files[0]);
+            }
+        });
+
+        // === FUNÇÃO PRINCIPAL DE UPLOAD ===
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!selectedFile) {
+                updateStatus('Por favor, selecione um arquivo.', 'error');
+                return;
+            }
+            
+            setFormDisabled(true);
+            updateStatus('Iniciando upload seguro...', 'info');
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+
+            try {
+                // 1. Pede a URL assinada para o back-end
+                updateStatus('Preparando ambiente seguro...', 'info');
+                const response = await fetch(GENERATE_URL_ENDPOINT, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ fileName: selectedFile.name })
+                });
+
+                if (!response.ok) throw new Error(`Não foi possível obter a permissão de upload (status: ${response.status})`);
+                
+                const { url } = await response.json();
+
+                // 2. Faz o upload do arquivo diretamente para o Google Cloud Storage
+                await uploadToGCS(url, selectedFile);
+                
+                updateStatus('Upload concluído! O processamento foi iniciado em segundo plano.', 'success');
+                resetForm();
+
+            } catch (error) {
+                updateStatus(`Falha na operação: ${error.message}`, 'error');
+                setFormDisabled(false);
+            }
+        });
+
+        function uploadToGCS(signedUrl, file) {
+            return new Promise((resolve, reject) => {
+                uploadXHR = new XMLHttpRequest();
+                uploadXHR.open('PUT', signedUrl, true);
+                
+                // O Content-Type deve corresponder ao que foi definido na função que gerou a URL
+                uploadXHR.setRequestHeader('Content-Type', 'text/csv'); 
+
+                uploadXHR.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const percentComplete = Math.round((event.loaded / event.total) * 100);
+                        progressBar.style.width = percentComplete + '%';
+                        progressBar.textContent = percentComplete + '%';
+                        updateStatus(`Enviando... ${percentComplete}%`, 'info');
+                    }
+                };
+
+                uploadXHR.onload = () => {
+                    if (uploadXHR.status === 200) {
+                        resolve(uploadXHR.response);
+                    } else {
+                        reject(new Error(`Erro no upload para o Storage (status: ${uploadXHR.status})`));
+                    }
+                };
+                
+                uploadXHR.onerror = () => reject(new Error('Erro de rede durante o upload.'));
+                uploadXHR.onabort = () => reject(new Error('Upload cancelado.'));
+                
+                uploadXHR.send(file);
+            });
+        }
+        
+        // === FUNÇÕES AUXILIARES DE UI ===
+        cancelButton.addEventListener('click', resetForm);
+
+        function handleFileSelection(file) {
+            selectedFile = file;
+            fileDisplay.textContent = `Arquivo selecionado: ${file.name}`;
+        }
+
+        function updateStatus(message, type = 'info') {
+            statusDiv.textContent = message;
+            statusDiv.className = type; // 'success', 'error', ou ''
+        }
+        
+        function setFormDisabled(isDisabled) {
+            analyzeButton.disabled = isDisabled;
+            fileInput.disabled = isDisabled;
+            dropArea.style.pointerEvents = isDisabled ? 'none' : 'auto';
+            dropArea.style.opacity = isDisabled ? 0.6 : 1;
+        }
+
+        function resetForm() {
+            if (uploadXHR) {
+                uploadXHR.abort(); // Cancela o upload em andamento
+                uploadXHR = null;
+            }
+            form.reset();
+            selectedFile = null;
+            fileDisplay.textContent = '';
+            statusDiv.textContent = '';
+            statusDiv.className = '';
+            progressContainer.style.display = 'none';
+            setFormDisabled(false);
+        }
+    </script>
+</body>
+</html>
