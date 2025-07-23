@@ -7,6 +7,8 @@ import tempfile
 import uuid
 import traceback
 import logging
+import time
+import threading
 from google.cloud import storage
 import functions_framework
 import vertexai
@@ -21,6 +23,9 @@ logger = logging.getLogger(__name__)
 BUCKET_NAME = os.environ.get('BUCKET_NAME', 'iteng-entrada-analise')
 PROJECT_ID = "iteng-itsystems"
 LOCATION = "us-central1"
+
+# Cache global para progresso das sessões
+progress_cache = {}
 
 # Inicialização do Vertex AI
 vertexai.init(project=PROJECT_ID, location=LOCATION)
@@ -72,7 +77,7 @@ def analisar_interacao(texto_interacao: str) -> dict:
     """Chama o modelo Gemini para analisar o texto e retorna um dicionário."""
     try:
         # Usar o modelo correto disponível na região us-central1
-        model = GenerativeModel("gemini-1.5-flash", system_instruction=[PROMPT])
+        model = GenerativeModel("gemini-2.5-flash-lite", system_instruction=[PROMPT])
         response = model.generate_content(
             [Part.from_text(f"Interação para Análise: {texto_interacao}")],
             generation_config={"response_mime_type": "application/json"}
@@ -81,6 +86,22 @@ def analisar_interacao(texto_interacao: str) -> dict:
     except Exception as e:
         logger.error(f"Erro ao analisar interação: {e}")
         return {"raciocinio": "Erro no processamento da IA", "classificacao_final": "Erro"}
+
+def update_progress(session_id: str, current: int, total: int, status: str = "processing", extra_data: dict = None):
+    """Atualiza o progresso de uma sessão no cache."""
+    progress_data = {
+        'current': current,
+        'total': total,
+        'percentage': round((current / total) * 100, 1) if total > 0 else 0,
+        'status': status,
+        'timestamp': time.time()
+    }
+    
+    if extra_data:
+        progress_data.update(extra_data)
+    
+    progress_cache[session_id] = progress_data
+    logger.info(f"Progresso atualizado - Sessão: {session_id}, {current}/{total} ({progress_data['percentage']}%)")
 
 def estimate_processing_time(file_size_mb: float) -> dict:
     """Estima o tempo de processamento baseado no tamanho do arquivo."""
@@ -102,7 +123,8 @@ def make_blob_public(bucket_name: str, blob_path: str) -> str:
     try:
         storage_client = get_storage_client()
         if not storage_client:
-            return None
+            logger.error("Storage client não disponível para tornar blob público")
+            return f"https://storage.googleapis.com/{bucket_name}/{blob_path}"
             
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_path)
@@ -117,15 +139,24 @@ def make_blob_public(bucket_name: str, blob_path: str) -> str:
         return public_url
     except Exception as e:
         logger.error(f"Erro ao tornar blob público: {e}")
+        logger.error(traceback.format_exc())
         # Fallback: retornar URL direta mesmo sem permissão pública
         return f"https://storage.googleapis.com/{bucket_name}/{blob_path}"
 
-def processar_csv_com_prompt(csv_content: str, session_id: str, max_preview_rows: int = 50) -> tuple:
-    """Processa um CSV aplicando o prompt e retorna o CSV processado + dados para preview."""
+def processar_csv_streaming(csv_content: str, session_id: str, max_preview_rows: int = 50) -> tuple:
+    """Processa um CSV aplicando o prompt com updates de progresso em tempo real."""
     try:
         # Ler o CSV
         csv_reader = csv.DictReader(io.StringIO(csv_content))
         fieldnames = list(csv_reader.fieldnames) + ['raciocinio', 'classificacao_final']
+        
+        # Primeiro, contar total de linhas para progresso
+        csv_reader_count = csv.DictReader(io.StringIO(csv_content))
+        total_rows = sum(1 for row in csv_reader_count)
+        logger.info(f"Total de linhas para processar: {total_rows}")
+        
+        # Inicializar progresso
+        update_progress(session_id, 0, total_rows, "starting")
         
         # Criar CSV de saída
         output = io.StringIO()
@@ -133,19 +164,22 @@ def processar_csv_com_prompt(csv_content: str, session_id: str, max_preview_rows
         csv_writer.writeheader()
         
         processed_count = 0
-        total_rows = 0
         preview_data = []
         
-        # Primeiro, contar total de linhas para progresso
-        csv_reader_count = csv.DictReader(io.StringIO(csv_content))
-        total_rows = sum(1 for row in csv_reader_count)
-        logger.info(f"Total de linhas para processar: {total_rows}")
-        
-        # Otimização para arquivos grandes: processar em lotes menores
-        batch_size = 10 if total_rows > 1000 else 50
+        # Determinar tamanho do chunk baseado no número total de linhas
+        if total_rows <= 100:
+            chunk_size = 5
+        elif total_rows <= 500:
+            chunk_size = 10
+        elif total_rows <= 1000:
+            chunk_size = 20
+        else:
+            chunk_size = 50
         
         # Resetar o reader
         csv_reader = csv.DictReader(io.StringIO(csv_content))
+        
+        start_time = time.time()
         
         for row_index, row in enumerate(csv_reader, 1):
             # Verificar se existe a coluna 'ordered_messages'
@@ -164,12 +198,27 @@ def processar_csv_com_prompt(csv_content: str, session_id: str, max_preview_rows
             if len(preview_data) < max_preview_rows:
                 preview_data.append(dict(row))
             
-            # Log de progresso em lotes menores para arquivos grandes
-            if row_index % batch_size == 0 or row_index == total_rows:
-                progress = (row_index / total_rows) * 100
-                logger.info(f"Progresso: {row_index}/{total_rows} linhas ({progress:.1f}%) - {processed_count} analisadas")
+            # Atualizar progresso em chunks ou ao finalizar
+            if row_index % chunk_size == 0 or row_index == total_rows:
+                elapsed_time = time.time() - start_time
+                avg_time_per_row = elapsed_time / row_index if row_index > 0 else 0
+                remaining_rows = total_rows - row_index
+                estimated_remaining_time = remaining_rows * avg_time_per_row
+                
+                update_progress(
+                    session_id, 
+                    row_index, 
+                    total_rows, 
+                    "processing",
+                    {
+                        'processed_count': processed_count,
+                        'elapsed_time': round(elapsed_time, 1),
+                        'estimated_remaining': round(estimated_remaining_time, 1),
+                        'avg_time_per_row': round(avg_time_per_row, 2)
+                    }
+                )
         
-        # Estatísticas finais
+        # Calcular estatísticas finais
         stats = {
             'total_rows': total_rows,
             'processed_rows': processed_count,
@@ -178,12 +227,66 @@ def processar_csv_com_prompt(csv_content: str, session_id: str, max_preview_rows
             'wow_count': sum(1 for row in preview_data if row.get('classificacao_final') == 'WoW')
         }
         
+        # Marcar como concluído
+        update_progress(session_id, total_rows, total_rows, "completed", {
+            'processed_count': processed_count,
+            'total_time': round(time.time() - start_time, 1),
+            'stats': stats
+        })
+        
         logger.info(f"Processamento concluído: {processed_count}/{total_rows} linhas analisadas")
         return output.getvalue(), preview_data, fieldnames, stats
         
     except Exception as e:
         logger.error(f"Erro ao processar CSV: {e}")
+        update_progress(session_id, 0, 0, "error", {'error_message': str(e)})
         raise
+
+def processar_csv_async(csv_content: str, session_id: str, filename: str):
+    """Processa CSV de forma assíncrona em thread separada."""
+    try:
+        logger.info(f"Iniciando processamento assíncrono para sessão {session_id}")
+        processed_csv, preview_data, column_names, stats = processar_csv_streaming(csv_content, session_id)
+        
+        logger.info(f"Processamento concluído, salvando no storage...")
+        
+        # Salvar o CSV processado no Storage
+        processed_filename = f"processado_{filename}"
+        blob_path = f"processados/{session_id}/{processed_filename}"
+        
+        storage_client = get_storage_client()
+        if not storage_client:
+            raise Exception("Falha ao obter cliente do Storage")
+            
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(processed_csv, content_type='text/csv')
+        logger.info(f"CSV processado salvo em: {blob_path}")
+        
+        # Tornar o arquivo público para download
+        download_url = make_blob_public(BUCKET_NAME, blob_path)
+        if not download_url:
+            raise Exception("Falha ao tornar blob público")
+            
+        logger.info(f"Download URL criada: {download_url}")
+        
+        # Atualizar cache com dados finais
+        logger.info(f"Atualizando cache final com resultados...")
+        update_progress(session_id, stats['total_rows'], stats['total_rows'], "completed", {
+            'download_url': download_url,
+            'processed_filename': processed_filename,
+            'preview_data': preview_data,
+            'column_names': column_names,
+            'statistics': stats,
+            'total_time': 0  # Adicionar tempo total
+        })
+        
+        logger.info(f"Processamento assíncrono concluído com sucesso para sessão {session_id}")
+            
+    except Exception as e:
+        logger.error(f"Erro no processamento assíncrono: {e}")
+        logger.error(traceback.format_exc())
+        update_progress(session_id, 0, 0, "error", {'error_message': str(e), 'traceback': traceback.format_exc()})
 
 # --- Funções Auxiliares (baseadas no código fornecido) ---
 
@@ -253,7 +356,40 @@ def upload_service(request):
         except Exception as e:
             return (f"Erro ao servir HTML: {e}", 500, headers)
 
-    # Rota 2: Upload de arquivos
+    # Rota 2: Consultar progresso de uma sessão
+    elif request.method == 'GET' and 'progress' in request.path:
+        try:
+            # Extrair session_id da URL (ex: /progress/session_id)
+            path_parts = request.path.split('/')
+            session_id = path_parts[-1] if len(path_parts) > 1 else None
+            
+            if not session_id:
+                return (json.dumps({'success': False, 'message': 'Session ID não fornecido'}), 400, headers)
+            
+            progress_data = progress_cache.get(session_id)
+            
+            if not progress_data:
+                return (json.dumps({'success': False, 'message': 'Sessão não encontrada'}), 404, headers)
+            
+            # Limpar dados antigos (> 1 hora)
+            if time.time() - progress_data.get('timestamp', 0) > 3600:
+                progress_cache.pop(session_id, None)
+                return (json.dumps({'success': False, 'message': 'Sessão expirada'}), 410, headers)
+            
+            response_data = {
+                'success': True,
+                'session_id': session_id,
+                'progress': progress_data
+            }
+            
+            headers['Content-Type'] = 'application/json'
+            return (json.dumps(response_data), 200, headers)
+            
+        except Exception as e:
+            logger.error(f"Erro ao consultar progresso: {e}")
+            return (json.dumps({'success': False, 'message': f'Erro interno: {e}'}), 500, headers)
+
+    # Rota 3: Upload de arquivos
     elif request.method == 'POST' and (request.path == '/' or 'upload' in request.path):
         try:
             if 'files[]' not in request.files:
@@ -298,7 +434,7 @@ def upload_service(request):
             logger.error(traceback.format_exc())
             return (json.dumps({'success': False, 'message': f'Erro durante processamento: {e}', 'traceback': traceback.format_exc()}), 500, headers)
     
-    # Rota 3: Processar CSV com prompt
+    # Rota 4: Processar CSV com prompt
     elif request.method == 'POST' and 'process' in request.path:
         try:
             if 'file' not in request.files:
@@ -329,9 +465,9 @@ def upload_service(request):
             # Ler o conteúdo do CSV
             csv_content = file.read().decode('utf-8')
             
-            # Processar o CSV com o prompt
+            # Processar o CSV com o prompt DIRETAMENTE (sem thread)
             logger.info(f"Iniciando processamento do CSV: {file.filename}")
-            processed_csv, preview_data, column_names, stats = processar_csv_com_prompt(csv_content, session_id)
+            processed_csv, preview_data, column_names, stats = processar_csv_streaming(csv_content, session_id)
             
             # Salvar o CSV processado no Storage
             processed_filename = f"processado_{file.filename}"

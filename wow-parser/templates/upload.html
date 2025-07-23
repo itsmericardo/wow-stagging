@@ -498,31 +498,47 @@
         /* Responsive */
         @media (max-width: 1200px) {
             .main-container {
-                max-width: 100vw;
-                padding: 0 8px;
+                max-width: 100%;
+                padding: 0 16px;
             }
             .container {
-                max-width: 98vw;
+                max-width: 100%;
+                margin: 0 auto;
             }
             .form-section {
-                max-width: 98vw;
+                max-width: 100%;
             }
             .data-table {
-                min-width: 600px;
+                min-width: 700px;
             }
         }
         @media (max-width: 768px) {
             .main-container {
-                padding: 0 2px;
+                padding: 0 8px;
             }
             .container, .form-section {
-                max-width: 100vw;
+                max-width: 100%;
             }
             .content-area {
-                padding: 30px 5px;
+                padding: 30px 15px;
             }
             .data-table {
-                min-width: 400px;
+                min-width: 500px;
+                font-size: 0.8rem;
+            }
+            .header h1 {
+                font-size: 2.5rem;
+            }
+            .header p {
+                font-size: 1.1rem;
+            }
+            .button-container {
+                flex-direction: column;
+                align-items: center;
+            }
+            .btn {
+                width: 100%;
+                max-width: 300px;
             }
         }
 
@@ -548,7 +564,7 @@
         <div class="header">
             <h1><i class="fas fa-sparkles"></i> WoW Analyzer</h1>
             <p>Sistema Identificador de WOW's</p>
-            <p class="subtitle">Powered by Nubank AI Technology</p>
+            <p class="subtitle">Powered by Business Efficiency AI Team</p>
         </div>
 
         <div class="container">
@@ -570,7 +586,7 @@
                                 <i class="fas fa-file-csv"></i>
                             </div>
                             <div class="file-upload-text">Clique aqui ou arraste seu arquivo CSV</div>
-                            <div class="file-upload-subtext">Máximo 50MB • Processamento pode levar alguns minutos</div>
+                            <div class="file-upload-subtext">Máximo 100MB • Processamento pode levar alguns minutos</div>
                             <div class="requirements">
                                 <strong>Requisito:</strong> O CSV deve conter uma coluna chamada <strong>'ordered_messages'</strong> com as conversas para análise.
                             </div>
@@ -599,9 +615,15 @@
     <script>
         // Global variables
         let isProcessing = false;
+        let currentSessionId = null;
+        let progressInterval = null;
 
         // Clear function
         function clearAll() {
+            // Stop timers and polling
+            stopTimer();
+            stopProgressPolling();
+            
             // Reset file input
             const fileInput = document.getElementById('csv-input');
             fileInput.value = '';
@@ -618,13 +640,19 @@
             
             // Reset processing state
             isProcessing = false;
+            currentSessionId = null;
             
             // Reset submit button
             const submitButton = document.querySelector('button[type="submit"]');
             submitButton.disabled = false;
             submitButton.innerHTML = '<i class="fas fa-magic"></i> Iniciar Análise WoW';
             
-            // Clear any timers or pending requests if needed
+            // Reset subtext
+            const subtextElement = document.querySelector('.file-upload-subtext');
+            if (subtextElement) {
+                subtextElement.innerHTML = 'Máximo 100MB • Processamento pode levar alguns minutos';
+            }
+            
             console.log('Sistema limpo e pronto para nova análise');
         }
 
@@ -740,6 +768,188 @@
             startTime = null;
         }
 
+        // Polling de progresso
+        function startProgressPolling(sessionId) {
+            currentSessionId = sessionId;
+            const baseUrl = 'https://southamerica-east1-iteng-itsystems.cloudfunctions.net/wow-parser';
+            
+            progressInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${baseUrl}/progress/${sessionId}`);
+                    const result = await response.json();
+                    
+                    if (result.success && result.progress) {
+                        updateProgressDisplay(result.progress);
+                        
+                        // Se completado, parar polling e mostrar resultado
+                        if (result.progress.status === 'completed') {
+                            stopProgressPolling();
+                            handleProcessingComplete(result.progress);
+                        } else if (result.progress.status === 'error') {
+                            stopProgressPolling();
+                            handleProcessingError(result.progress);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Erro ao consultar progresso:', error);
+                }
+            }, 2000); // Poll a cada 2 segundos
+        }
+
+        function stopProgressPolling() {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                progressInterval = null;
+            }
+            currentSessionId = null;
+        }
+
+        function updateProgressDisplay(progress) {
+            const statusDiv = document.getElementById('process-status');
+            const percentage = progress.percentage || 0;
+            const current = progress.current || 0;
+            const total = progress.total || 0;
+            const processedCount = progress.processed_count || 0;
+            
+            let statusText = '';
+            let progressBar = '';
+            
+            if (progress.status === 'starting') {
+                statusText = 'Iniciando processamento...';
+            } else if (progress.status === 'processing') {
+                const elapsedTime = progress.elapsed_time || 0;
+                const remainingTime = progress.estimated_remaining || 0;
+                
+                statusText = `Processando linha ${current} de ${total} (${percentage}%)`;
+                
+                if (remainingTime > 0) {
+                    const remainingMin = Math.floor(remainingTime / 60);
+                    const remainingSec = Math.floor(remainingTime % 60);
+                    const timeText = remainingMin > 0 ? `${remainingMin}min ${remainingSec}s` : `${remainingSec}s`;
+                    statusText += ` • Tempo restante: ~${timeText}`;
+                }
+                
+                // Barra de progresso
+                progressBar = `
+                    <div style="width: 100%; background: #e5d9f2; border-radius: 10px; height: 20px; margin: 10px 0; overflow: hidden;">
+                        <div style="width: ${percentage}%; background: linear-gradient(135deg, #662D91, #8B5A96); height: 100%; transition: width 0.3s ease; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; font-weight: 600;">
+                            ${percentage.toFixed(1)}%
+                        </div>
+                    </div>
+                `;
+            }
+            
+            statusDiv.innerHTML = `
+                <i class="fas fa-cogs fa-spin"></i> 
+                ${statusText}
+                ${progressBar}
+                <div style="font-size: 0.9rem; color: #666; margin-top: 5px;">
+                    ✅ ${processedCount} mensagens analisadas
+                </div>
+            `;
+        }
+
+        function handleProcessingComplete(progress) {
+            stopTimer();
+            isProcessing = false;
+            
+            const submitButton = document.querySelector('button[type="submit"]');
+            submitButton.disabled = false;
+            submitButton.innerHTML = '<i class="fas fa-magic"></i> Iniciar Análise WoW';
+            
+            showStatus('process-status', '🎉 Processamento concluído com sucesso!', 'success');
+            
+            // Debug: console log para verificar estrutura dos dados
+            console.log('Progress data:', progress);
+            
+            // Mostrar resultados se disponíveis
+            if (progress.download_url && progress.preview_data) {
+                const downloadButton = `<a href="${progress.download_url}" download="${progress.processed_filename}" class="btn btn-primary" style="display: inline-flex; margin-top: 15px; text-decoration: none; max-width: 250px;">
+                    <i class="fas fa-download"></i>
+                    Baixar Planilha Completa
+                </a>`;
+                
+                const stats = progress.statistics || progress.stats || {};
+                const statsHtml = `
+                    <div class="stats-container">
+                        <div class="stat-item">
+                            <div class="stat-number">${stats.total_rows || 0}</div>
+                            <div class="stat-label">Total de Linhas</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">${stats.normal_count || 0}</div>
+                            <div class="stat-label">Normal</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">${stats.bom_count || 0}</div>
+                            <div class="stat-label">Bom</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">${stats.wow_count || 0}</div>
+                            <div class="stat-label">WoW</div>
+                        </div>
+                    </div>
+                `;
+                
+                const tableHtml = renderPreviewTable(progress.preview_data, progress.column_names);
+                
+                showResult('process-result', `
+                    <h3><i class="fas fa-check-circle"></i> Análise WoW Concluída</h3>
+                    
+                    <div class="result-info">
+                        <div class="info-item">
+                            <span class="info-label">⏱️ Tempo Total:</span>
+                            <span class="info-value">${progress.total_time || 0}s</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">📊 Linhas Processadas:</span>
+                            <span class="info-value">${progress.processed_count || 0}</span>
+                        </div>
+                    </div>
+                    
+                    <h4 style="margin-top: 30px; color: #662D91;">📊 Estatísticas da Análise</h4>
+                    ${statsHtml}
+                    
+                    <h4 style="margin-top: 30px; color: #662D91;">👁️ Preview dos Resultados (primeiras 50 linhas)</h4>
+                    ${tableHtml}
+                    
+                    <div style="margin-top: 25px; padding: 20px; background: #f0f9ff; border-radius: 12px; border-left: 4px solid #0ea5e9;">
+                        <p style="color: #0c4a6e; margin: 0; font-weight: 500;">
+                            <i class="fas fa-lightbulb"></i> O arquivo processado contém duas novas colunas: 
+                            <strong>'raciocinio'</strong> e <strong>'classificacao_final'</strong> com a análise de cada conversa.
+                        </p>
+                        ${downloadButton}
+                    </div>
+                `);
+            } else {
+                // Fallback se não houver dados - mostrar mensagem de debug
+                showResult('process-result', `
+                    <h3><i class="fas fa-exclamation-triangle"></i> Dados de Resultado Não Encontrados</h3>
+                    <p>Debug info:</p>
+                    <pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; font-size: 0.8rem; overflow-x: auto;">
+                        download_url: ${progress.download_url || 'undefined'}
+                        preview_data: ${progress.preview_data ? 'exists (' + progress.preview_data.length + ' rows)' : 'undefined'}
+                        column_names: ${progress.column_names ? 'exists (' + progress.column_names.length + ' cols)' : 'undefined'}
+                        statistics: ${JSON.stringify(progress.statistics || progress.stats || {}, null, 2)}
+                    </pre>
+                `);
+            }
+        }
+
+        function handleProcessingError(progress) {
+            stopTimer();
+            isProcessing = false;
+            
+            const submitButton = document.querySelector('button[type="submit"]');
+            submitButton.disabled = false;
+            submitButton.innerHTML = '<i class="fas fa-magic"></i> Iniciar Análise WoW';
+            
+            const errorMessage = progress.error_message || 'Erro desconhecido no processamento';
+            const traceback = progress.traceback ? `<br><pre style="font-size:0.8em;color:#b91c1c;max-height:200px;overflow-y:auto;">${progress.traceback}</pre>` : '';
+            
+            showStatus('process-status', `❌ ${errorMessage}${traceback}`, 'error');
+        }
+
         // Process CSV form handler
         document.getElementById('process-form').addEventListener('submit', async function(event) {
             event.preventDefault();
@@ -771,9 +981,12 @@
             submitButton.disabled = true;
             submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analisando conversas <div class="loading-dots"><span></span><span></span><span></span></div>';
 
-            showStatus('process-status', 'Processando... <span style="color:#662D91;font-weight:600;">⏱️ 0s</span>', 'info');
-            startTimer();
+            showStatus('process-status', 'Iniciando processamento...', 'info');
             document.getElementById('process-result').classList.remove('show');
+            
+            // Limpar tempo estimado durante processamento
+            const subtextElement = uploadArea.querySelector('.file-upload-subtext');
+            subtextElement.innerHTML = 'Processamento em andamento...';
 
             try {
                 const response = await fetch(functionUrl, {
@@ -782,86 +995,27 @@
                     credentials: 'include'
                 });
 
-                stopTimer();
                 const result = await response.json();
 
                 if (response.ok && result.success) {
-                    showStatus('process-status', '🎉 ' + result.message, 'success');
+                    // Processamento concluído com sucesso!
+                    showStatus('process-status', '✅ ' + result.message, 'success');
                     
-                    const downloadButton = result.download_url ? 
-                        `<a href="${result.download_url}" download="${result.processed_filename}" class="btn btn-primary" style="display: inline-flex; margin-top: 15px; text-decoration: none; max-width: 250px;">
-                            <i class="fas fa-download"></i>
-                            Baixar Planilha Completa
-                        </a>` : 
-                        '<p style="color: #dc2626;">⚠️ Link de download não disponível</p>';
-                    
-                    const stats = result.statistics || {};
-                    const statsHtml = `
-                        <div class="stats-container">
-                            <div class="stat-item">
-                                <div class="stat-number">${stats.total_rows || 0}</div>
-                                <div class="stat-label">Total de Linhas</div>
-                            </div>
-                            <div class="stat-item">
-                                <div class="stat-number">${stats.normal_count || 0}</div>
-                                <div class="stat-label">Normal</div>
-                            </div>
-                            <div class="stat-item">
-                                <div class="stat-number">${stats.bom_count || 0}</div>
-                                <div class="stat-label">Bom</div>
-                            </div>
-                            <div class="stat-item">
-                                <div class="stat-number">${stats.wow_count || 0}</div>
-                                <div class="stat-label">WoW</div>
-                            </div>
-                        </div>
-                    `;
-                    
-                    const tableHtml = renderPreviewTable(result.preview_data, result.column_names);
-                    
-                    showResult('process-result', `
-                        <h3><i class="fas fa-check-circle"></i> Análise WoW Concluída</h3>
-                        
-                        <div class="result-info">
-                            <div class="info-item">
-                                <span class="info-label">📁 Arquivo Original:</span>
-                                <span class="info-value">${result.original_filename}</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">✨ Arquivo Processado:</span>
-                                <span class="info-value">${result.processed_filename}</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">🔑 ID da Sessão:</span>
-                                <span class="info-value">${result.session_id}</span>
-                            </div>
-                        </div>
-                        
-                        <h4 style="margin-top: 30px; color: #662D91;">📊 Estatísticas da Análise</h4>
-                        ${statsHtml}
-                        
-                        <h4 style="margin-top: 30px; color: #662D91;">👁️ Preview dos Resultados (primeiras 50 linhas)</h4>
-                        ${tableHtml}
-                        
-                        <div style="margin-top: 25px; padding: 20px; background: #f0f9ff; border-radius: 12px; border-left: 4px solid #0ea5e9;">
-                            <p style="color: #0c4a6e; margin: 0; font-weight: 500;">
-                                <i class="fas fa-lightbulb"></i> O arquivo processado contém duas novas colunas: 
-                                <strong>'raciocinio'</strong> e <strong>'classificacao_final'</strong> com a análise de cada conversa.
-                            </p>
-                            ${downloadButton}
-                        </div>
-                    `);
+                    // Processar resultado direto
+                    handleProcessingComplete(result);
                 } else {
-                    showStatus('process-status', '❌ ' + (result.message || 'Erro no processamento.') + (result.traceback ? `<br><pre style="font-size:0.8em;color:#b91c1c;">${result.traceback}</pre>` : ''), 'error');
+                    throw new Error(result.message || 'Erro no processamento');
                 }
             } catch (error) {
-                stopTimer();
-                console.error('Erro ao processar:', error);
-                showStatus('process-status', '🔧 Erro de conexão. Verifique sua internet e tente novamente.', 'error');
-            } finally {
                 isProcessing = false;
                 submitButton.disabled = false;
                 submitButton.innerHTML = '<i class="fas fa-magic"></i> Iniciar Análise WoW';
+                
+                console.error('Erro ao processar:', error);
+                showStatus('process-status', '🔧 Erro: ' + error.message, 'error');
+                
+                // Reset subtext
+                subtextElement.innerHTML = 'Máximo 100MB • Processamento pode levar alguns minutos';
             }
         });
 

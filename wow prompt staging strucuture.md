@@ -97,5 +97,3 @@ O código fonte está versionado neste repositório GitHub.
 
 ---
 
-> "O melhor atendimento é aquele que surpreende. O melhor código é aquele que encanta!" – Equipe WoW Analyzer
-
