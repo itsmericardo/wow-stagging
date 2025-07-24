@@ -102,16 +102,4 @@ https://southamerica-east1-iteng-itsystems.cloudfunctions.net/wow-parser
 - [Python 3.11](https://www.python.org/)
 - [HTML5/CSS3/JS](https://developer.mozilla.org/)
 
----
-
-## 🦄 Contribua!
-Pull requests são bem-vindos! Sinta-se livre para sugerir melhorias, novas features ou só deixar um elogio roxo.
-
----
-
-## 📜 Licença
-MIT. Use, compartilhe, melhore e espalhe o WoW!
-
----
-
-> "O melhor atendimento é aquele que surpreende. O melhor código é aquele que encanta!" – Equipe WoW Analyzer
+-

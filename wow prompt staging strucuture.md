@@ -2,97 +2,152 @@
 
 ### **Documentação Técnica: WOW Analyzer**
 
-Versão: 2.1
+Versão: 2.2 (Projeto Pausado)
 
-Data: 23 de Julho de 2025
+Data: 24 de Julho de 2025
 
-Autor: Ricardo Santos, assistido por Gemini
+Autor: Ricardo Santos, assistido por Claude
 
 #### **1. Visão Geral**
 
 O sistema **WOW Analyzer** é uma aplicação web serverless projetada para analisar arquivos CSV contendo interações de atendimento ao cliente. Utiliza IA Generativa do Google (Gemini) para classificar cada interação e salva os resultados de forma estruturada para análise posterior.
 
-A arquitetura é construída inteiramente sobre serviços gerenciados do Google Cloud Platform (GCP), garantindo alta escalabilidade, segurança e baixo custo operacional. O sistema é visual, divertido e inspirado na identidade Nubank.
+**Status Atual:** Projeto pausado com duas implementações prontas para deploy manual.
 
-#### **2. Arquitetura da Solução (Atual)**
+#### **2. Arquitetura Atual**
 
-O sistema é composto por uma única Cloud Function (wow-parser) que serve tanto o frontend quanto o backend, tornando o fluxo mais simples e direto.
+O projeto possui duas implementações distintas:
+
+### **2.1 Implementação Principal: wow-parser (Frontend Integrado)**
 
 **Serviços GCP Utilizados:**
+* **Cloud Functions (Gen 2):** Frontend e backend integrados
+* **Cloud Storage:** Bucket `iteng-entrada-analise` para entrada e saída
+* **Vertex AI (Gemini 2.5 Flash Lite):** Análise e classificação das interações
 
-* **Cloud Functions (Gen 2):** Toda a lógica computacional, frontend e backend.
-* **Cloud Storage:** Armazenamento dos arquivos de entrada (uploads) e saída (resultados processados).
-* **Vertex AI (Gemini 2.5 Flash Lite):** Análise de sentimento/classificação das interações.
+**URL de Acesso:** https://southamerica-east1-iteng-itsystems.cloudfunctions.net/wow-parser
 
-**Fluxo de Dados End-to-End:**
+**Características:**
+- Interface web completa integrada
+- Processamento síncrono em memória
+- Preview das primeiras 50 linhas
+- Estatísticas em tempo real
+- Download direto do arquivo processado
+- Autenticação configurada (IAP)
 
-1. **Acesso e Upload:**
-   * O usuário acessa a URL da aplicação e faz upload de um arquivo CSV via interface web.
-   * O arquivo é enviado diretamente para a função wow-parser, que processa o conteúdo em memória.
-2. **Processamento IA:**
-   * A função processa cada linha do CSV, chama o Gemini para análise e adiciona as colunas `raciocinio` e `classificacao_final`.
-   * Um preview das primeiras 50 linhas é retornado para exibição imediata na interface.
-   * O arquivo completo processado é salvo no bucket do Cloud Storage e tornado público para download.
-3. **Visualização e Download:**
-   * O usuário visualiza estatísticas, preview e pode baixar o arquivo processado diretamente por um link público.
-   * Um cronômetro em tempo real mostra a duração do processamento.
+### **2.2 Implementação Alternativa: funcao-processadora (Deploy Manual)**
 
-#### **3. Componentes Detalhados**
+**Preparada para:**
+* **Cloud Run Functions** ou **Cloud Functions**
+* **Trigger Manual** ou **Bucket Trigger**
+* **Deploy via Console GCP**
 
-| Função         | wow-parser (única) |
-| :-------------| :----------------- |
-| **Responsabilidade** | Servir o frontend (HTML), receber uploads, processar CSV, chamar IA, salvar e disponibilizar resultado, exibir preview e estatísticas |
-| **Gatilho**   | HTTP Trigger |
-| **Código Fonte** | ./wow-parser/ |
+**Características:**
+- Código simplificado e autocontido
+- HTML integrado (sem dependências externas)
+- CORS configurado para acesso público
+- Gemini 1.5 Flash (mais estável)
+- Pronto para configuração manual
 
-#### **4. Acesso ao Código Fonte**
+#### **3. Estrutura de Arquivos**
 
-O código fonte está versionado neste repositório GitHub.
+```
+wow-stagging/
+├── wow-parser/                    # Implementação principal (funcionando)
+│   ├── main.py                   # Backend + Frontend integrado
+│   ├── requirements.txt          # Dependências completas
+│   └── templates/
+│       └── upload.html           # Interface web
+├── funcao-processadora/          # Implementação alternativa (pronta)
+│   ├── main.py                  # Código autocontido para deploy manual
+│   └── requirements.txt         # Dependências essenciais
+├── README.md                    # Documentação do projeto
+├── learning.md                  # Aprendizados e lições
+└── wow prompt staging strucuture.md  # Esta documentação
+```
 
-#### **5. Segurança e Permissões**
+#### **4. Status dos Componentes**
 
-* O download do arquivo processado é público (link direto do bucket), facilitando o compartilhamento.
-* O upload e processamento são feitos via interface autenticada (IAP pode ser ativado se desejado).
-* O deploy não utiliza `--allow-unauthenticated` para upload/processamento, mas o download é público para facilitar o uso.
-* As permissões da service account da função estão corretas: `roles/aiplatform.user` e `roles/storage.admin`.
+| Componente | Status | Observações |
+|------------|--------|-------------|
+| **Frontend** | ✅ Funcionando | Interface completa com preview, stats e download |
+| **Backend** | ✅ Funcionando | Processamento CSV, upload, storage |
+| **Autenticação** | ✅ Configurada | IAP ativo, não permite acesso público |
+| **Processamento IA** | ⚠️ **Pendente** | Gemini retorna "Erro no processamento" |
+| **Deploy Manual** | ✅ Pronto | Código preparado para Cloud Run Functions |
+
+#### **5. Problema Identificado**
+
+**Gemini API:** Todas as chamadas para o Vertex AI retornam "Erro no processamento da IA", resultando em:
+- Estatísticas zeradas (0 Normal, 0 Bom, 0 WoW)
+- Todas as linhas marcadas como "Erro"
+- Arquivo processado é criado mas sem classificações válidas
+
+**Possíveis Causas:**
+- Quotas do Vertex AI
+- Permissões insuficientes
+- Configuração de região (us-central1 vs southamerica-east1)
+- Modelo Gemini indisponível ou deprecated
 
 #### **6. Configuração e Deploy**
 
-1. **Criar Infraestrutura:**
-   * Criar o bucket de entrada/saída no Cloud Storage (ex: `iteng-entrada-analise`).
-2. **Fazer o Deploy da Função:**
-   * Executar:
-     ```bash
-     gcloud functions deploy wow-parser \
-       --project iteng-itsystems \
-       --region southamerica-east1 \
-       --runtime python311 \
-       --source wow-parser/ \
-       --entry-point upload_service \
-       --trigger-http \
-       --set-env-vars BUCKET_NAME=iteng-entrada-analise \
-       --timeout=540 --memory=2Gi
-     ```
-3. **Acessar a Interface:**
-   * URL: https://southamerica-east1-iteng-itsystems.cloudfunctions.net/wow-parser
+### **6.1 Deploy da Função Principal (Atual)**
+```bash
+cd wow-parser
+gcloud functions deploy wow-parser \
+  --project iteng-itsystems \
+  --region southamerica-east1 \
+  --runtime python311 \
+  --source . \
+  --entry-point upload_service \
+  --trigger-http \
+  --timeout=540 --memory=2Gi \
+  --set-env-vars BUCKET_NAME=iteng-entrada-analise
+```
 
-#### **7. Experiência do Usuário**
+### **6.2 Deploy Manual Alternativo (Pronto)**
+1. **Console GCP** → Cloud Functions ou Cloud Run Functions
+2. **Código:** `funcao-processadora/main.py`
+3. **Dependências:** `funcao-processadora/requirements.txt`
+4. **Entry Point:** `upload_service`
+5. **Trigger:** HTTP (allow unauthenticated)
+6. **Environment:** `BUCKET_NAME=iteng-entrada-analise`
 
-* Interface moderna, responsiva e roxa (Nubank style)
-* Upload com drag & drop
-* Cronômetro de processamento em tempo real
-* Preview das primeiras 50 linhas processadas
-* Estatísticas de Normal/Bom/WoW
-* Download público do arquivo completo processado
-* Botão "Limpar" para resetar a interface
+#### **7. Próximos Passos (Quando Retomar)**
 
-#### **8. Estado Atual e Pendências**
+### **Prioridade 1: Resolver Problema do Gemini**
+- [ ] Verificar quotas do Vertex AI no projeto
+- [ ] Testar diferentes modelos (gemini-1.5-flash, gemini-pro)
+- [ ] Verificar permissões da service account
+- [ ] Considerar migrar para us-central1
+- [ ] Abrir chamado no suporte GCP se necessário
 
-* **Frontend:** 100% funcional, preview, estatísticas e download OK.
-* **Backend:** Deploy correto, variáveis e permissões ajustadas, processamento síncrono.
-* **Permissões:** Service account com `roles/aiplatform.user` e `roles/storage.admin`.
-* **PENDÊNCIA:** Erro no processamento Gemini (Vertex AI) impede classificação real das interações. O erro está sendo logado, mas a função retorna "Erro no processamento da IA" para todas as linhas. Arquivo processado não é salvo no bucket.
-* **Próximo passo:** Investigar logs detalhados do Vertex AI e quotas, ou abrir chamado no suporte GCP se necessário.
+### **Prioridade 2: Otimizações**
+- [ ] Implementar retry automático para falhas de IA
+- [ ] Adicionar logs mais detalhados
+- [ ] Criar fallback para processamento sem IA
+- [ ] Implementar processamento em lotes para arquivos grandes
+
+### **Prioridade 3: Funcionalidades**
+- [ ] Autenticação via service account para acesso público
+- [ ] Interface para visualização de histórico
+- [ ] Exportação de dashboards e gráficos
+- [ ] Filtros e busca na interface
+
+#### **8. Limitações Conhecidas**
+
+- **Política Organizacional:** Não permite `--allow-unauthenticated` em Cloud Functions
+- **Processamento IA:** Falha sistemática nas chamadas do Gemini
+- **Timeout:** Limitado a 540s para arquivos muito grandes
+- **Memória:** 2GB pode ser insuficiente para CSVs > 100MB
+
+#### **9. Arquivos de Backup**
+
+- `GUIA_COMPLETO_IMPLEMENTACAO_backup.md` - Guia completo (copiado)
+- `learning_backup.md` - Aprendizados (copiado)
 
 ---
+
+**Projeto pausado em 24/07/2025**  
+**Próxima ação:** Resolver problema de processamento Gemini/Vertex AI
 
